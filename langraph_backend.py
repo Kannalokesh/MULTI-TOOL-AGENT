@@ -6,6 +6,8 @@ import sqlite3
 import tempfile
 from typing import Annotated, Any, Dict, Optional, TypedDict
 from dotenv import load_dotenv
+from docx import Document as DocxDocument
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
@@ -45,87 +47,94 @@ def _get_retriever(thread_id: Optional[str]):
     return None
 
 
-def ingest_pdf(
+def _load_file(file_path: str, filename: str) -> list:
+    ext = os.path.splitext(filename)[-1].lower()
+
+    if ext == ".pdf":
+        loader = PyPDFLoader(file_path)
+        docs = loader.load()
+        # Override source with actual filename
+        for doc in docs:
+            doc.metadata["source"] = filename
+        return docs
+
+    elif ext == ".txt":
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+        return [Document(page_content=text, metadata={"source": filename, "page": 0})]
+
+    elif ext in [".doc", ".docx"]:
+        docx = DocxDocument(file_path)
+        text = "\n".join([para.text for para in docx.paragraphs if para.text.strip()])
+        return [Document(page_content=text, metadata={"source": filename, "page": 0})]
+
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+
+def ingest_file(
     file_bytes: bytes, thread_id: str, filename: Optional[str] = None
 ) -> dict:
     """
-    Build a FAISS retriever for the uploaded PDF and store it for the thread.
-
-    Returns a summary dict that can be surfaced in the UI.
+    Build or update a FAISS retriever for the uploaded file and store it for the thread.
+    Supports .pdf, .txt, .doc, .docx files.
+    Multiple files per thread are merged into one index.
     """
     if not file_bytes:
         raise ValueError("No bytes received for ingestion.")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+    ext = os.path.splitext(filename)[-1].lower() if filename else ".pdf"
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
         temp_file.write(file_bytes)
         temp_path = temp_file.name
 
     try:
-        loader = PyPDFLoader(temp_path)
-        docs = loader.load()
+        docs = _load_file(temp_path, filename)
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", " ", ""]
         )
         chunks = splitter.split_documents(docs)
 
-        vector_store = FAISS.from_documents(chunks, embeddings)
-
-        # 1. First populate _THREAD_METADATA
-        _THREAD_METADATA[str(thread_id)] = {
-            "filename": filename or os.path.basename(temp_path),
-            "documents": len(docs),
-            "chunks": len(chunks),
-        }
-        # Save to disk
         faiss_path = os.path.join(FAISS_STORE_DIR, str(thread_id))
+
+        # If index already exists for this thread, merge into it
+        if str(thread_id) in _THREAD_RETRIEVERS and os.path.exists(faiss_path):
+            existing_store = FAISS.load_local(
+                faiss_path, embeddings, allow_dangerous_deserialization=True
+            )
+            existing_store.add_documents(chunks)
+            vector_store = existing_store
+        else:
+            vector_store = FAISS.from_documents(chunks, embeddings)
+
+        # Save updated index to disk
         vector_store.save_local(faiss_path)
 
-        # Save metadata
-        meta_path = os.path.join(faiss_path, "metadata.json")
-        with open(meta_path, "w") as f:
-            json.dump(_THREAD_METADATA[str(thread_id)], f)
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 4}
         )
-
         _THREAD_RETRIEVERS[str(thread_id)] = retriever
-        _THREAD_METADATA[str(thread_id)] = {
-            "filename": filename or os.path.basename(temp_path),
-            "documents": len(docs),
-            "chunks": len(chunks),
-        }
-        def _load_existing_faiss_stores():
-            """Load all persisted FAISS indexes into memory on app startup."""
-            if not os.path.exists(FAISS_STORE_DIR):
-                return
-            for thread_id in os.listdir(FAISS_STORE_DIR):
-                faiss_path = os.path.join(FAISS_STORE_DIR, thread_id)
-                try:
-                    vector_store = FAISS.load_local(
-                        faiss_path, embeddings, allow_dangerous_deserialization=True
-                    )
-                    _THREAD_RETRIEVERS[thread_id] = vector_store.as_retriever(
-                        search_type="similarity", search_kwargs={"k": 4}
-                    )
-                    # Try to restore metadata from disk
-                    meta_path = os.path.join(faiss_path, "metadata.json")
-                    if os.path.exists(meta_path):
-                        with open(meta_path, "r") as f: 
-                            _THREAD_METADATA[thread_id] = json.load(f)
-                        
-                except Exception as e:
-                    print(f"Failed to load FAISS for thread {thread_id}: {e}")
 
-        _load_existing_faiss_stores()
+        # Update metadata — track all files
+        existing_meta = _THREAD_METADATA.get(str(thread_id), {"files": [], "total_chunks": 0, "total_documents": 0})
+        existing_meta["files"].append(filename)
+        existing_meta["total_documents"] += len(docs)
+        existing_meta["total_chunks"] += len(chunks)
+        _THREAD_METADATA[str(thread_id)] = existing_meta
+
+        # Save metadata to disk
+        meta_path = os.path.join(faiss_path, "metadata.json")
+        with open(meta_path, "w") as f:
+            json.dump(_THREAD_METADATA[str(thread_id)], f)
 
         return {
-            "filename": filename or os.path.basename(temp_path),
+            "filename": filename,
             "documents": len(docs),
             "chunks": len(chunks),
         }
     finally:
-        # The FAISS store keeps copies of the text, so the temp file is safe to remove.
         try:
             os.remove(temp_path)
         except OSError:

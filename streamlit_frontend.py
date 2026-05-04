@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langraph_backend import (
     chatbot,
     conn,
-    ingest_pdf,
+    ingest_file,
     FAISS_STORE_DIR,
     retrieve_all_threads,
     thread_document_metadata,
@@ -87,27 +87,30 @@ if st.sidebar.button("New Chat", use_container_width=True):
     st.rerun()
 
 if thread_docs:
-    latest_doc = list(thread_docs.values())[-1]
-    st.sidebar.success(
-        f"Using `{latest_doc.get('filename')}` "
-        f"({latest_doc.get('chunks')} chunks from {latest_doc.get('documents')} pages)"
-    )
+    st.sidebar.success(f"📁 {len(thread_docs)} file(s) indexed")
+    for doc_name in thread_docs:
+        st.sidebar.caption(f"• {doc_name}")
 else:
     st.sidebar.info("No PDF indexed yet.")
 
-uploaded_pdf = st.sidebar.file_uploader("Upload a PDF for this chat", type=["pdf"])
-if uploaded_pdf:
-    if uploaded_pdf.name in thread_docs:
-        st.sidebar.info(f"`{uploaded_pdf.name}` already processed for this chat.")
-    else:
-        with st.sidebar.status("Indexing PDF…", expanded=True) as status_box:
-            summary = ingest_pdf(
-                uploaded_pdf.getvalue(),
-                thread_id=thread_key,
-                filename=uploaded_pdf.name,
-            )
-            thread_docs[uploaded_pdf.name] = summary
-            status_box.update(label="✅ PDF indexed", state="complete", expanded=False)
+uploaded_files = st.sidebar.file_uploader(
+    "Upload files for this chat",
+    type=["pdf", "txt", "doc", "docx"],
+    accept_multiple_files=True
+)
+if uploaded_files:
+    for uploaded_file in uploaded_files:
+        if uploaded_file.name in thread_docs:
+            st.sidebar.info(f"`{uploaded_file.name}` already processed.")
+        else:
+            with st.sidebar.status(f"Indexing `{uploaded_file.name}`…", expanded=True) as status_box:
+                summary = ingest_file(
+                    uploaded_file.getvalue(),
+                    thread_id=thread_key,
+                    filename=uploaded_file.name,
+                )
+                thread_docs[uploaded_file.name] = summary
+                status_box.update(label=f"✅ `{uploaded_file.name}` indexed", state="complete", expanded=False)
 
 st.sidebar.subheader("History")
 if not threads:
@@ -196,13 +199,6 @@ if user_input:
     st.session_state["message_history"].append(
         {"role": "assistant", "content": ai_message}
     )
-
-    doc_meta = thread_document_metadata(thread_key)
-    if doc_meta:
-        st.caption(
-            f"Document indexed: {doc_meta.get('filename')} "
-            f"(chunks: {doc_meta.get('chunks')}, pages: {doc_meta.get('documents')})"
-        )
 
 st.divider()
 

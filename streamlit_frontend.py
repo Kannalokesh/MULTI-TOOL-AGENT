@@ -10,7 +10,6 @@ from langraph_backend import (
     ingest_file,
     FAISS_STORE_DIR,
     retrieve_all_threads,
-    thread_document_metadata,
 )
 
 

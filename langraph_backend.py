@@ -4,6 +4,7 @@ import os
 import json
 import sqlite3
 import tempfile
+import wikipedia
 from typing import Annotated, Any, Dict, Optional, TypedDict
 from dotenv import load_dotenv
 from docx import Document as DocxDocument
@@ -146,7 +147,7 @@ def ingest_file(
 # -------------------
 search_tool = TavilySearch(max_results=5)
 
-
+# calculator
 @tool
 def calculator(first_num: float, second_num: float, operation: str) -> dict:
     """
@@ -176,7 +177,7 @@ def calculator(first_num: float, second_num: float, operation: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-
+# stock price
 @tool
 def get_stock_price(symbol: str) -> dict:
     """
@@ -191,6 +192,81 @@ def get_stock_price(symbol: str) -> dict:
     return r.json()
 
 
+# Currency Converter
+@tool
+def currency_converter(amount: float, from_currency: str, to_currency: str) -> dict:
+    """
+    Convert an amount from one currency to another.
+    Examples: from_currency='USD', to_currency='INR', amount=100
+    """
+    try:
+        url = f"https://api.frankfurter.app/latest?amount={amount}&from={from_currency.upper()}&to={to_currency.upper()}"
+        r = requests.get(url)
+        data = r.json()
+        if "rates" not in data:
+            return {"error": "Invalid currency or conversion not available."}
+        result = data["rates"].get(to_currency.upper())
+        return {
+            "amount": amount,
+            "from": from_currency.upper(),
+            "to": to_currency.upper(),
+            "result": result,
+            "date": data.get("date"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+#  Weather
+@tool
+def get_weather(city: str) -> dict:
+    """
+    Get ONLY the current weather conditions (temperature, humidity, wind, description)
+    for a given city name. Use this for weather and climate queries ONLY.
+    Do NOT use this for stock prices, currency, or any financial queries.
+    Example: city='Hyderabad', city='London', city='New York'
+    """
+    try:
+        url = f"https://wttr.in/{city}?format=j1"
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        current = data["current_condition"][0]
+        return {
+            "city": city,
+            "temperature_c": current["temp_C"],
+            "temperature_f": current["temp_F"],
+            "feels_like_c": current["FeelsLikeC"],
+            "humidity": current["humidity"],
+            "description": current["weatherDesc"][0]["value"],
+            "wind_speed_kmph": current["windspeedKmph"],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+#  Wikipedia
+@tool
+def wikipedia_search(query: str) -> dict:
+    """
+    Search Wikipedia and return a summary for the given query.
+    Use for general knowledge, historical facts, or concept explanations.
+    """
+    try:
+        page = wikipedia.page(query, auto_suggest=True)
+        summary = wikipedia.summary(query, sentences=5, auto_suggest=True)
+        return {
+            "title": page.title,
+            "summary": summary,
+            "url": page.url,
+        }
+    except wikipedia.exceptions.DisambiguationError as e:
+        return {"error": f"Ambiguous query. Did you mean: {e.options[:5]}"}
+    except wikipedia.exceptions.PageError:
+        return {"error": f"No Wikipedia page found for '{query}'"}
+    except Exception as e:
+        return {"error": str(e)}
+
+# rag 
 @tool
 def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
     """
@@ -223,7 +299,7 @@ def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
     }
 
 
-tools = [search_tool, get_stock_price, calculator, rag_tool]
+tools = [search_tool, get_stock_price, calculator, rag_tool, currency_converter, get_weather, wikipedia_search]
 llm_with_tools = llm.bind_tools(tools)
 
 
@@ -245,25 +321,53 @@ def chat_node(state: ChatState, config=None):
   
     system_message = SystemMessage(
     content=(
-        "You are a helpful, precise assistant with access to the following tools. "
-        "Always choose the most appropriate tool based on the user's query.\n\n"
+        "You are a precise, tool-driven assistant. "
+        "You NEVER answer from memory when a tool is available. "
+        "Always select the single most appropriate tool for each query.\n\n"
 
-        "## Available Tools\n"
-        "- **rag_tool**: Use for ANY and ALL user questions when a PDF is indexed. "
-        f"The current thread has thread_id=`{thread_id}`. "
-        f"A document IS currently indexed for thread_id=`{thread_id}`. "
-        f"ALWAYS call rag_tool with thread_id=`{thread_id}` before answering ANY question. "
-        "When answering from rag_tool results, ALWAYS cite the source at the end of your answer in this format: `📄 Source: filename.pdf, Page(s): 3, 7`. "
-        "Do not skip this even if you know the answer.\n"
-        "- **tavily_search**: Use for current events or real-world facts ONLY if rag_tool returns no results.\n"
-        "- **get_stock_price**: Use for stock or share price lookups. Accepts a ticker symbol (e.g. AAPL, TSLA).\n"
-        "- **calculator**: Use for any arithmetic. Never compute math mentally.\n\n"
+        "## Tool Selection Rules (follow strictly in order)\n\n"
 
-        "## Rules\n"
-        "1. ALWAYS call `rag_tool` first for every user question — no exceptions.\n"
-        "2. Only skip `rag_tool` for stock prices or arithmetic queries.\n"
-        "3. Never answer from memory if a document is indexed.\n"
-        "4. Never fabricate data — if a tool returns no result, say so clearly."
+        "1. **rag_tool** — HIGHEST PRIORITY\n"
+        f"   - thread_id for this session: `{thread_id}`\n"
+        "   - Invoke IMMEDIATELY if the user asks ANYTHING about an uploaded document, "
+        "file, PDF, or says 'according to the document', 'what does it say', 'summarize', etc.\n"
+        "   - Also invoke if a document was previously uploaded in this thread — "
+        "check thread memory before deciding to skip.\n"
+        "   - ALWAYS pass `thread_id` when calling this tool.\n"
+        "   - ALWAYS cite the source at the end: `📄 Source: filename, Page(s): X`\n"
+        "   - If rag_tool returns no results, fall back to `wikipedia_search` or `tavily_search`.\n\n"
+
+        "2. **get_stock_price** — for stock/share price queries\n"
+        "   - Invoke for any query mentioning a stock, share price, ticker, or market value.\n"
+        "   - Accepts ticker symbols (e.g. AAPL, TSLA, INFY).\n\n"
+
+        "3. **calculator** — for arithmetic only\n"
+        "   - Invoke for any addition, subtraction, multiplication, or division.\n"
+        "   - NEVER compute math mentally — always use this tool.\n\n"
+
+        "4. **currency_converter** — for currency conversion\n"
+        "   - Invoke when user asks to convert between currencies.\n"
+        "   - Accepts: amount, from_currency, to_currency (e.g. 100 USD to INR).\n\n"
+
+        "5. **get_weather** — ONLY for weather, temperature, humidity, forecast questions.\n"
+        "   - Keywords: weather, temperature, hot, cold, raining, forecast, climate.\n"
+        "   - Accepts a city name (e.g. Hyderabad, Mumbai, New York).\n"
+        "   - This is NEVER used for stock prices or financial data.\n\n"
+
+        "6. **wikipedia_search** — for general knowledge\n"
+        "   - Invoke for concepts, definitions, historical facts, or well-known topics.\n"
+        "   - Prefer this over tavily_search for established knowledge.\n\n"
+
+        "7. **tavily_search** — for real-time web search\n"
+        "   - Invoke for current events, recent news, or anything time-sensitive.\n"
+        "   - Use only when other tools are not suitable.\n\n"
+
+        "## Hard Rules\n"
+        "- NEVER answer from your own knowledge if a relevant tool exists.\n"
+        "- NEVER skip rag_tool if a document is available in this thread.\n"
+        "- NEVER fabricate data — if a tool returns no result, say so honestly.\n"
+        "- ONE tool per query unless chaining is explicitly needed (e.g. fetch stock price THEN calculate).\n"
+        "- If unsure between two tools, pick the more specific one."
         )
     )
 
@@ -320,11 +424,13 @@ def should_summarize(state: ChatState):
         return "summarize"
     return "chat_node"
 
+# nodes
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
 graph.add_node("tools", tool_node)
 graph.add_node("summarize_node", summarize_node)
 
+# edges
 graph.add_conditional_edges(START, should_summarize)
 graph.add_conditional_edges("chat_node", tools_condition)
 graph.add_edge("tools", "chat_node")

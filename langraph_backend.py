@@ -21,6 +21,9 @@ import requests
 
 load_dotenv()
 
+FAISS_STORE_DIR = "faiss_store"
+os.makedirs(FAISS_STORE_DIR, exist_ok=True)
+
 # -------------------
 # 1. LLM + embeddings
 # -------------------
@@ -66,6 +69,9 @@ def ingest_pdf(
         chunks = splitter.split_documents(docs)
 
         vector_store = FAISS.from_documents(chunks, embeddings)
+        # Save to disk
+        faiss_path = os.path.join(FAISS_STORE_DIR, str(thread_id))
+        vector_store.save_local(faiss_path)
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 4}
         )
@@ -148,8 +154,7 @@ def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
     Always include the thread_id when calling this tool.
     """
     retriever = _get_retriever(thread_id)
-    print(f"DEBUG retriever={retriever}")
-    retriever = _get_retriever(thread_id)
+
     if retriever is None:
         return {
             "error": "No document indexed for this chat. Upload a PDF first.",
@@ -157,13 +162,18 @@ def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
         }
 
     result = retriever.invoke(query)
-    context = [doc.page_content for doc in result]
-    metadata = [doc.metadata for doc in result]
+    # Build cited chunks with page numbers
+    cited_chunks = []
+    for doc in result:
+        cited_chunks.append({
+            "content": doc.page_content,
+            "page": doc.metadata.get("page", "unknown"),
+            "source": doc.metadata.get("source", _THREAD_METADATA.get(str(thread_id), {}).get("filename", "document")),
+        })
 
     return {
         "query": query,
-        "context": context,
-        "metadata": metadata,
+        "results": cited_chunks,
         "source_file": _THREAD_METADATA.get(str(thread_id), {}).get("filename"),
     }
 
@@ -198,6 +208,7 @@ def chat_node(state: ChatState, config=None):
         f"The current thread has thread_id=`{thread_id}`. "
         f"A document IS currently indexed for thread_id=`{thread_id}`. "
         f"ALWAYS call rag_tool with thread_id=`{thread_id}` before answering ANY question. "
+        "When answering from rag_tool results, ALWAYS cite the source at the end of your answer in this format: `📄 Source: filename.pdf, Page(s): 3, 7`. "
         "Do not skip this even if you know the answer.\n"
         "- **tavily_search**: Use for current events or real-world facts ONLY if rag_tool returns no results.\n"
         "- **get_stock_price**: Use for stock or share price lookups. Accepts a ticker symbol (e.g. AAPL, TSLA).\n"

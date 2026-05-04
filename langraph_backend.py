@@ -144,8 +144,11 @@ def get_stock_price(symbol: str) -> dict:
 def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
     """
     Retrieve relevant information from the uploaded PDF for this chat thread.
+    ALWAYS call this tool first for any user question when a document is available.
     Always include the thread_id when calling this tool.
     """
+    retriever = _get_retriever(thread_id)
+    print(f"DEBUG retriever={retriever}")
     retriever = _get_retriever(thread_id)
     if retriever is None:
         return {
@@ -184,26 +187,26 @@ def chat_node(state: ChatState, config=None):
     thread_id = None
     if config and isinstance(config, dict):
         thread_id = config.get("configurable", {}).get("thread_id")
-
+  
     system_message = SystemMessage(
     content=(
         "You are a helpful, precise assistant with access to the following tools. "
         "Always choose the most appropriate tool based on the user's query.\n\n"
 
         "## Available Tools\n"
-        "- **rag_tool**: Use for ANY question about the uploaded PDF document. "
-        f"Always pass `thread_id='{thread_id}'` when calling this tool.\n"
-        "- **tavily_search** : Use for current events, "
-        "real-world facts, or anything not covered by the PDF or other tools.\n"
-        "- **get_stock_price**: Use for stock or share price lookups. "
-        "Accepts a ticker symbol (e.g. AAPL, TSLA).\n"
-        "- **calculator**: Use for any arithmetic — addition, subtraction, "
-        "multiplication, division. Never compute math mentally.\n\n"
+        "- **rag_tool**: Use for ANY and ALL user questions when a PDF is indexed. "
+        f"The current thread has thread_id=`{thread_id}`. "
+        f"A document IS currently indexed for thread_id=`{thread_id}`. "
+        f"ALWAYS call rag_tool with thread_id=`{thread_id}` before answering ANY question. "
+        "Do not skip this even if you know the answer.\n"
+        "- **tavily_search**: Use for current events or real-world facts ONLY if rag_tool returns no results.\n"
+        "- **get_stock_price**: Use for stock or share price lookups. Accepts a ticker symbol (e.g. AAPL, TSLA).\n"
+        "- **calculator**: Use for any arithmetic. Never compute math mentally.\n\n"
 
         "## Rules\n"
-        "1. If the user asks about the PDF, ALWAYS call `rag_tool` — do not answer from memory.\n"
-        "2. If no PDF is indexed yet, politely ask the user to upload one via the sidebar.\n"
-        "3. If unsure which tool applies, prefer answering with a tool over guessing.\n"
+        "1. ALWAYS call `rag_tool` first for every user question — no exceptions.\n"
+        "2. Only skip `rag_tool` for stock prices or arithmetic queries.\n"
+        "3. Never answer from memory if a document is indexed.\n"
         "4. Never fabricate data — if a tool returns no result, say so clearly."
         )
     )

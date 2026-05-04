@@ -35,6 +35,7 @@ desktop.ini
 # FAISS index (if you ever persist it to disk)
 *.faiss
 *.index
+faiss_store/
 
 # Uploaded / temp PDFs
 *.pdf

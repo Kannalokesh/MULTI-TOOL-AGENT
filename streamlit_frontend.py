@@ -1,5 +1,6 @@
+import os
 import uuid
-
+import shutil
 import streamlit as st
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -7,6 +8,7 @@ from langraph_backend import (
     chatbot,
     conn,
     ingest_pdf,
+    FAISS_STORE_DIR,
     retrieve_all_threads,
     thread_document_metadata,
 )
@@ -34,13 +36,21 @@ def delete_thread(thread_id):
         st.session_state["chat_threads"].remove(thread_id)
     if thread_id_str in st.session_state["ingested_docs"]:
         del st.session_state["ingested_docs"][thread_id_str]
-    # Safely delete only from tables that exist
-    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    existing_tables = {row[0] for row in cursor.fetchall()}
-    for table in ["checkpoints", "checkpoint_writes", "checkpoint_blobs"]:
-        if table in existing_tables:
-            conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (thread_id_str,))
-    conn.commit()
+
+    # Delete FAISS store from disk
+    faiss_path = os.path.join(FAISS_STORE_DIR, thread_id_str)
+    if os.path.exists(faiss_path):
+        shutil.rmtree(faiss_path)
+
+    try:
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = {row[0] for row in cursor.fetchall()}
+        for table in ["checkpoints", "checkpoint_writes", "checkpoint_blobs"]:
+            if table in existing_tables:
+                conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (thread_id_str,))
+        conn.commit()
+    except Exception:
+        pass
 
 
 def load_conversation(thread_id):
@@ -116,11 +126,20 @@ else:
             if st.button("🗑", key=f"delete-thread-{thread_id}", use_container_width=True):
                 delete_thread(thread_id)
                 if is_active:
-                    reset_chat()
-                else:
-                    # Just rerun, stay on current chat
-                    st.rerun()
-
+                    # Switch to the most recent remaining thread instead of creating new
+                    remaining = [t for t in st.session_state["chat_threads"]]
+                    if remaining:
+                        st.session_state["thread_id"] = remaining[-1]
+                        messages = load_conversation(remaining[-1])
+                        temp_messages = []
+                        for msg in messages:
+                            role = "user" if isinstance(msg, HumanMessage) else "assistant"
+                            temp_messages.append({"role": role, "content": msg.content})
+                        st.session_state["message_history"] = temp_messages
+                    else:
+                        # No threads left at all — only then create a new one
+                        reset_chat()
+                st.rerun()
 # ============================ Main Layout ========================
 st.title("🍵 Tea and Tool Time")
 

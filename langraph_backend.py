@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import os
+import json
 import sqlite3
 import tempfile
 from typing import Annotated, Any, Dict, Optional, TypedDict
-
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage, RemoveMessage, HumanMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_tavily import TavilySearch
@@ -23,6 +23,7 @@ load_dotenv()
 
 FAISS_STORE_DIR = "faiss_store"
 os.makedirs(FAISS_STORE_DIR, exist_ok=True)
+
 
 # -------------------
 # 1. LLM + embeddings
@@ -69,9 +70,21 @@ def ingest_pdf(
         chunks = splitter.split_documents(docs)
 
         vector_store = FAISS.from_documents(chunks, embeddings)
+
+        # 1. First populate _THREAD_METADATA
+        _THREAD_METADATA[str(thread_id)] = {
+            "filename": filename or os.path.basename(temp_path),
+            "documents": len(docs),
+            "chunks": len(chunks),
+        }
         # Save to disk
         faiss_path = os.path.join(FAISS_STORE_DIR, str(thread_id))
         vector_store.save_local(faiss_path)
+
+        # Save metadata
+        meta_path = os.path.join(faiss_path, "metadata.json")
+        with open(meta_path, "w") as f:
+            json.dump(_THREAD_METADATA[str(thread_id)], f)
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 4}
         )
@@ -82,6 +95,29 @@ def ingest_pdf(
             "documents": len(docs),
             "chunks": len(chunks),
         }
+        def _load_existing_faiss_stores():
+            """Load all persisted FAISS indexes into memory on app startup."""
+            if not os.path.exists(FAISS_STORE_DIR):
+                return
+            for thread_id in os.listdir(FAISS_STORE_DIR):
+                faiss_path = os.path.join(FAISS_STORE_DIR, thread_id)
+                try:
+                    vector_store = FAISS.load_local(
+                        faiss_path, embeddings, allow_dangerous_deserialization=True
+                    )
+                    _THREAD_RETRIEVERS[thread_id] = vector_store.as_retriever(
+                        search_type="similarity", search_kwargs={"k": 4}
+                    )
+                    # Try to restore metadata from disk
+                    meta_path = os.path.join(faiss_path, "metadata.json")
+                    if os.path.exists(meta_path):
+                        with open(meta_path, "r") as f: 
+                            _THREAD_METADATA[thread_id] = json.load(f)
+                        
+                except Exception as e:
+                    print(f"Failed to load FAISS for thread {thread_id}: {e}")
+
+        _load_existing_faiss_stores()
 
         return {
             "filename": filename or os.path.basename(temp_path),
@@ -226,6 +262,37 @@ def chat_node(state: ChatState, config=None):
     response = llm_with_tools.invoke(messages, config=config)
     return {"messages": [response]}
 
+SUMMARY_THRESHOLD = 10
+def summarize_node(state: ChatState, config=None):
+    """Summarize older messages when conversation gets too long."""
+    messages = state["messages"]
+
+    if len(messages) <= SUMMARY_THRESHOLD:
+        return {}
+
+    # Split into old and recent
+    messages_to_summarize = messages[:-6]  # everything except last 6
+    recent_messages = messages[-6:]        # keep last 6 intact
+
+    # Build summary prompt
+    summary_prompt = (
+        "Summarize the following conversation history concisely, "
+        "preserving all key facts, answers, and context:\n\n"
+        + "\n".join(
+            f"{m.type.upper()}: {m.content}"
+            for m in messages_to_summarize
+            if hasattr(m, "content") and m.content
+        )
+    )
+
+    summary_response = llm.invoke([HumanMessage(content=summary_prompt)])
+    summary_text = f"[Conversation Summary]: {summary_response.content}"
+
+    # Remove old messages and replace with summary
+    messages_to_remove = [RemoveMessage(id=m.id) for m in messages_to_summarize]
+    summary_message = SystemMessage(content=summary_text)
+
+    return {"messages": messages_to_remove + [summary_message] + recent_messages}
 
 tool_node = ToolNode(tools)
 
@@ -238,13 +305,22 @@ checkpointer = SqliteSaver(conn=conn)
 # -------------------
 # 7. Graph
 # -------------------
+def should_summarize(state: ChatState):
+    """Route to summarize_node if messages exceed threshold."""
+    if len(state["messages"]) > SUMMARY_THRESHOLD:
+        return "summarize"
+    return "chat_node"
+
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
 graph.add_node("tools", tool_node)
+graph.add_node("summarize_node", summarize_node)
 
-graph.add_edge(START, "chat_node")
+graph.add_conditional_edges(START, should_summarize)
 graph.add_conditional_edges("chat_node", tools_condition)
 graph.add_edge("tools", "chat_node")
+graph.add_edge("summarize_node", "chat_node")
+
 
 chatbot = graph.compile(checkpointer=checkpointer)
 

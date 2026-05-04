@@ -184,7 +184,7 @@ should_summarize?  ──► YES ──► summarize_node (condense old messages
 | `get_stock_price` | Alpha Vantage | ✅ Yes (free tier) |
 | `calculator` | Built-in | ❌ No |
 | `currency_converter` | Frankfurter API | ❌ No |
-| `weather_lookup` | wttr.in | ❌ No |
+| `get_weather` | wttr.in | ❌ No |
 | `wikipedia_search` | Wikipedia | ❌ No |
 | `rag_tool` | FAISS + OpenAI | ✅ OpenAI key |
 

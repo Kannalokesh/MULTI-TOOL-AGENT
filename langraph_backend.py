@@ -34,12 +34,29 @@ os.makedirs(FAISS_STORE_DIR, exist_ok=True)
 llm = ChatOpenAI(model="gpt-4o-mini")
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
+alphavantage_apikey=os.getenv('ALPHAVANTAGE_API_KEY')
 # -------------------
 # 2. PDF retriever store (per thread)
 # -------------------
 _THREAD_RETRIEVERS: Dict[str, Any] = {}
 _THREAD_METADATA: Dict[str, dict] = {}
 
+THREAD_NAMES_FILE = "thread_names.json"
+
+def save_thread_name(thread_id: str, name):
+    names = load_thread_names()
+    if name is None:
+        names.pop(thread_id, None)
+    else:
+        names[thread_id] = name
+    with open(THREAD_NAMES_FILE, "w") as f:
+        json.dump(names, f)
+
+def load_thread_names() -> dict:
+    if os.path.exists(THREAD_NAMES_FILE):
+        with open(THREAD_NAMES_FILE, "r") as f:
+            return json.load(f)
+    return {}
 
 def _get_retriever(thread_id: Optional[str]):
     """Fetch the retriever for a thread if available."""
@@ -186,7 +203,7 @@ def get_stock_price(symbol: str) -> dict:
     """
     url = (
         "https://www.alphavantage.co/query"
-        f"?function=GLOBAL_QUOTE&symbol={symbol}&apikey=C9PE94QUEW9VWGFM"
+        f"?function=GLOBAL_QUOTE&symbol={symbol}&apikey={alphavantage_apikey}"
     )
     r = requests.get(url)
     return r.json()
@@ -376,6 +393,7 @@ def chat_node(state: ChatState, config=None):
     return {"messages": [response]}
 
 SUMMARY_THRESHOLD = 10
+
 def summarize_node(state: ChatState, config=None):
     """Summarize older messages when conversation gets too long."""
     messages = state["messages"]

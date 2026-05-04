@@ -3,6 +3,8 @@ import uuid
 import shutil
 import streamlit as st
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from datetime import datetime
+
 
 from langraph_backend import (
     chatbot,
@@ -10,13 +12,26 @@ from langraph_backend import (
     ingest_file,
     FAISS_STORE_DIR,
     retrieve_all_threads,
+    save_thread_name,
+    load_thread_names,
 )
 
 
 # =========================== Utilities ===========================
+def get_timestamp():
+    return datetime.now().strftime("%I:%M %p · %b %d")  # e.g. "10:35 AM · May 04"
+
 def generate_thread_id():
     return uuid.uuid4()
 
+def generate_thread_name(first_message: str) -> str:
+    """Use LLM to generate a short title from the first user message."""
+    from langraph_backend import llm
+    response = llm.invoke(
+        f"Generate a very short 3-5 word title for a chat that starts with this message: "
+        f'"{first_message}". Reply with ONLY the title, no quotes, no punctuation at the end.'
+    )
+    return response.content.strip()
 
 def reset_chat():
     thread_id = generate_thread_id()
@@ -31,6 +46,9 @@ def add_thread(thread_id):
 
 def delete_thread(thread_id):
     thread_id_str = str(thread_id)
+    if thread_id_str in st.session_state.get("thread_names", {}):
+        del st.session_state["thread_names"][thread_id_str]
+    save_thread_name(thread_id_str, None)
     if thread_id in st.session_state["chat_threads"]:
         st.session_state["chat_threads"].remove(thread_id)
     if thread_id_str in st.session_state["ingested_docs"]:
@@ -54,12 +72,22 @@ def delete_thread(thread_id):
 
 def load_conversation(thread_id):
     state = chatbot.get_state(config={"configurable": {"thread_id": thread_id}})
-    return state.values.get("messages", [])
+    messages = state.values.get("messages", [])
+    # Filter out ToolMessages and empty AIMessages
+    return [
+        msg for msg in messages
+        if isinstance(msg, (HumanMessage, AIMessage))
+        and msg.content  # skip empty content
+        and not isinstance(msg.content, list)  # skip tool call messages
+    ]
 
 
 # ======================= Session Initialization ===================
 if "message_history" not in st.session_state:
     st.session_state["message_history"] = []
+
+if "thread_names" not in st.session_state:
+    st.session_state["thread_names"] = load_thread_names()
 
 if "thread_id" not in st.session_state:
     st.session_state["thread_id"] = generate_thread_id()
@@ -118,7 +146,8 @@ else:
     for thread_id in threads:
         thread_id_str = str(thread_id)
         is_active = thread_id_str == thread_key
-        label = ("🟢 " if is_active else "") + thread_id_str[:16] + "..."
+        thread_name = st.session_state["thread_names"].get(thread_id_str, thread_id_str[:16] + "...")
+        label = ("🟢 " if is_active else "") + thread_name
 
         col1, col2 = st.sidebar.columns([5, 1])
         with col1:
@@ -149,13 +178,38 @@ st.title("🍵 Tea and Tool Time")
 for message in st.session_state["message_history"]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        if message.get("timestamp"):
+            st.caption(message["timestamp"])
+        if message.get("tools_used"):
+            tool_icons = {
+                "rag_tool": "📄",
+                "calculator": "🧮",
+                "get_stock_price": "📈",
+                "currency_converter": "💱",
+                "weather_lookup": "🌤️",
+                "wikipedia_search": "📖",
+                "tavily_search": "🔍",
+            }
+            badges = " · ".join(
+                f"{tool_icons.get(t, '🔧')} `{t}`"
+                for t in message["tools_used"]
+            )
+            st.caption(f"Tools used: {badges}")
 
 user_input = st.chat_input("Ask about your document or use tools")
 
 if user_input:
-    st.session_state["message_history"].append({"role": "user", "content": user_input})
+    st.session_state["message_history"].append(
+        {"role": "user", "content": user_input, "timestamp": get_timestamp()})
+    
+    if len(st.session_state["message_history"]) == 1:
+        thread_name = generate_thread_name(user_input)
+        st.session_state["thread_names"][thread_key] = thread_name
+        save_thread_name(thread_key, thread_name)
+
     with st.chat_message("user"):
-        st.text(user_input)
+        st.markdown(user_input)
+        st.caption(get_timestamp())
 
     CONFIG = {
         "configurable": {"thread_id": thread_key},
@@ -164,7 +218,7 @@ if user_input:
     }
 
     with st.chat_message("assistant"):
-        status_holder = {"box": None}
+        status_holder = {"box": None, "tools_used": []}
 
         def ai_only_stream():
             for message_chunk, _ in chatbot.stream(
@@ -174,6 +228,8 @@ if user_input:
             ):
                 if isinstance(message_chunk, ToolMessage):
                     tool_name = getattr(message_chunk, "name", "tool")
+                    if tool_name not in status_holder["tools_used"]:
+                        status_holder["tools_used"].append(tool_name)
                     if status_holder["box"] is None:
                         status_holder["box"] = st.status(
                             f"🔧 Using `{tool_name}` …", expanded=True
@@ -195,8 +251,26 @@ if user_input:
                 label="✅ Tool finished", state="complete", expanded=False
             )
 
+        st.caption(get_timestamp())
+        if status_holder["tools_used"]:
+            tool_icons = {
+                "rag_tool": "📄",
+                "calculator": "🧮",
+                "get_stock_price": "📈",
+                "currency_converter": "💱",
+                "weather_lookup": "🌤️",
+                "wikipedia_search": "📖",
+                "tavily_search": "🔍",
+            }
+            badges = " · ".join(
+                f"{tool_icons.get(t, '🔧')} `{t}`"
+                for t in status_holder["tools_used"]
+            )
+            st.caption(f"Tools used: {badges}")
+        
+
     st.session_state["message_history"].append(
-        {"role": "assistant", "content": ai_message}
+        {"role": "assistant", "content": ai_message, "timestamp": get_timestamp(), "tools_used": status_holder["tools_used"]}
     )
 
 st.divider()
@@ -208,7 +282,7 @@ if selected_thread:
     temp_messages = []
     for msg in messages:
         role = "user" if isinstance(msg, HumanMessage) else "assistant"
-        temp_messages.append({"role": role, "content": msg.content})
+        temp_messages.append({"role": role, "content": msg.content, "timestamp": None})
     st.session_state["message_history"] = temp_messages
     st.session_state["ingested_docs"].setdefault(str(selected_thread), {})
     st.rerun()

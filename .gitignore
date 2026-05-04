@@ -24,6 +24,8 @@ __pycache__/
 Thumbs.db
 desktop.ini
 
+thread_names.json
+
 # IDEs
 .vscode/
 .idea/

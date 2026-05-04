@@ -36,7 +36,7 @@ multi-tool-agent/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/multi-tool-agent.git
+git clone https://github.com/Kannalokesh/MULTI-TOOL-AGENT.git
 cd multi-tool-agent
 ```
 

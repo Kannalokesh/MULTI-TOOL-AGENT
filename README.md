@@ -1,4 +1,4 @@
-# 🍵 Tea and Tool Time — Multi-Tool AI Chatbot
+# 🍵 Tea and Tool Time — Multi-Tool AI Agent Chatbot
 
 A conversational AI chatbot built with **LangGraph** and **Streamlit**, capable of answering questions using multiple tools — web search, stock prices, calculator, weather, currency conversion, Wikipedia, and RAG over uploaded documents — all within persistent, multi-threaded chat sessions.
 

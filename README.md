@@ -2,6 +2,8 @@
 
 A conversational AI chatbot built with **LangGraph** and **Streamlit**, capable of answering questions using multiple tools — web search, stock prices, calculator, currency conversion, weather, Wikipedia, and RAG over uploaded documents — all within persistent, multi-threaded chat sessions with Google OAuth authentication.
 
+> 🚀 **Live Demo**: [mulit-tool-agent.up.railway.app](https://multi-tool-agent-production.up.railway.app/) *(restricted to authorized test users)*
+
 ***
 
 ## ✨ Features
@@ -10,6 +12,7 @@ A conversational AI chatbot built with **LangGraph** and **Streamlit**, capable 
 - **Google OAuth 2.0** — Secure sign-in with Google accounts
 - **Session Management** — Persistent login sessions stored in SQLite
 - **Multi-user Support** — Each user has isolated chat threads and document indexes
+- **Test-Mode Access Control** — OAuth app kept in "Testing" mode; only whitelisted Google accounts can sign in
 - **Sign Out** — Session invalidation with full state cleanup
 
 ### 🧠 Agent & Backend
@@ -24,6 +27,7 @@ A conversational AI chatbot built with **LangGraph** and **Streamlit**, capable 
 - 💾 **Persistent FAISS Index** — Document indexes saved to disk, survive app restarts
 - 🧠 **Memory Summarization** — Long conversations are auto-summarized to stay within token limits
 - 📁 **Multi-file Upload** — Accepts `.pdf`, `.txt`, `.doc`, `.docx` files per thread
+- 🛡️ **Guardrails** — Off-topic, harmful, or inappropriate queries are blocked before reaching the LLM
 
 ### 🖥️ Frontend & UI
 - 🧵 **Multi-threaded Conversations** — Each chat session is isolated with its own thread ID
@@ -33,6 +37,7 @@ A conversational AI chatbot built with **LangGraph** and **Streamlit**, capable 
 - ⏰ **Chat Timestamps** — Every message shows the time it was sent
 - 🏷️ **Tool Usage Badge** — Shows which tool was used for each assistant response
 - 📡 **Streaming Responses** — Live token-by-token output with tool status indicators
+- 🚦 **Rate Limiting** — Per-user rate limiting to prevent abuse and excessive API usage
 
 ***
 
@@ -120,6 +125,8 @@ REDIRECT_URI=http://localhost:8501
 6. Add `http://localhost:8501` to **Authorized Redirect URIs**
 7. Copy the **Client ID** and **Client Secret** into your `.env`
 
+> **Access control:** The app is kept in **Testing mode** in Google Cloud Console with a fixed list of authorized test users. Only those accounts can sign in — anyone else is blocked at the Google OAuth screen.
+
 ### 6. Run the app
 
 ```bash
@@ -185,6 +192,12 @@ Authenticated? ──► NO ──► Google OAuth Login
 Session restored ◄──── Session created + stored
     │
     ▼
+Guardrails check ──► BLOCKED ──► Rejection message returned
+    │ PASSED
+    ▼
+Rate limit check ──► EXCEEDED ──► "Too many requests" message
+    │ OK
+    ▼
 should_summarize?  ──► YES ──► summarize_node (condense old messages)
     │ NO                              │
     ▼                                 ▼
@@ -210,13 +223,15 @@ should_summarize?  ──► YES ──► summarize_node (condense old messages
 - **SQLite** checkpointing saves full message history per thread per user
 - **FAISS** stores document embeddings on disk per thread for fast similarity search
 - **Memory summarization** kicks in when a thread exceeds 10 messages
+- **Guardrails** intercept off-topic or harmful queries before they reach the LLM
+- **Rate limiting** tracks per-user request counts to prevent API credit abuse
 
 ***
 
 ## 🖥️ Usage
 
 1. Open the app in your browser (default: `http://localhost:8501`)
-2. **Sign in with your Google account**
+2. **Sign in with your Google account** *(only authorized accounts can access the app)*
 3. Use the **sidebar** to start a new chat or revisit past conversations
 4. Optionally **upload documents** (PDF, TXT, DOC, DOCX) to enable document Q&A
 5. Type your query — the agent picks the right tool automatically
@@ -247,6 +262,17 @@ should_summarize?  ──► YES ──► summarize_node (condense old messages
 | `get_weather` | wttr.in | ❌ No |
 | `wikipedia_search` | Wikipedia | ❌ No |
 | `rag_tool` | FAISS + OpenAI | ✅ OpenAI key |
+
+***
+
+## 🛡️ Security & Access Control
+
+- **Google OAuth Testing Mode** — App is kept in "Testing" status in Google Cloud Console. Only the configured test users can authenticate; all others are blocked automatically by Google.
+- **No public sign-up** — There is no self-registration flow. Access is explicitly granted per user.
+- **OpenAI spend cap** — A monthly spending limit is set on the OpenAI account to prevent runaway costs even in edge cases.
+- **Per-user rate limiting** — Each authenticated user has a request cap to prevent any single user from draining API quotas.
+- **Guardrails** — The agent rejects off-topic, harmful, or prompt-injection attempts before they consume tokens.
+- **Isolated data per user** — Each user's threads and FAISS indexes are namespaced by their user ID; no cross-user data access is possible.
 
 ***
 

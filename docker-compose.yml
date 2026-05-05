@@ -6,10 +6,22 @@ services:
     ports:
       - "8501:8501"
     env_file:
-      - .env                  # loads your API keys from .env
+      - .env
     volumes:
-      - ./faiss_store:/app/faiss_store       # persist FAISS indexes
-      - ./chatbot.db:/app/chatbot.db         # persist SQLite
-      - ./auth.db:/app/auth.db               #  persist auth/sessions
-      - ./thread_names.json:/app/thread_names.json  # persist thread names
+      - ./faiss_store:/app/faiss_store
+      - type: bind
+        source: ./chatbot.db
+        target: /app/chatbot.db
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ./auth.db
+        target: /app/auth.db
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ./thread_names.json
+        target: /app/thread_names.json
+        bind:
+          create_host_path: true
     restart: unless-stopped

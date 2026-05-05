@@ -211,27 +211,38 @@ def get_stock_price(symbol: str) -> dict:
 
 # Currency Converter
 @tool
-def currency_converter(amount: float, from_currency: str, to_currency: str) -> dict:
+def currency_converter(amount: float, from_currency: str, to_currency: str) -> str:
     """
-    Convert an amount from one currency to another.
-    Examples: from_currency='USD', to_currency='INR', amount=100
+    Convert an amount from one currency to another using live exchange rates.
+
+    Use this tool when the user asks to convert money between currencies,
+    e.g. 'Convert 100 USD to INR' or 'How much is 50 euros in dollars?'.
+
+    Supports 160+ currencies including USD, EUR, GBP, INR, KWD, AED, JPY,
+    AUD, CAD, SGD, and more.
+
+    Args:
+        amount: The numeric amount to convert (e.g. 100, 50.5)
+        from_currency: The source currency code (e.g. 'USD', 'KWD', 'EUR')
+        to_currency: The target currency code (e.g. 'INR', 'GBP', 'JPY')
+
+    Returns:
+        A string with the converted amount, e.g. '100 USD = 8345.00 INR'
+        or an error message if the currency is unsupported or the request fails.
     """
     try:
-        url = f"https://api.frankfurter.app/latest?amount={amount}&from={from_currency.upper()}&to={to_currency.upper()}"
-        r = requests.get(url)
-        data = r.json()
-        if "rates" not in data:
-            return {"error": "Invalid currency or conversion not available."}
-        result = data["rates"].get(to_currency.upper())
-        return {
-            "amount": amount,
-            "from": from_currency.upper(),
-            "to": to_currency.upper(),
-            "result": result,
-            "date": data.get("date"),
-        }
+        url = f"https://api.exchangerate-api.com/v4/latest/{from_currency.upper()}"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        if to_currency.upper() not in data["rates"]:
+            return f"Currency {to_currency.upper()} not supported."
+
+        rate = data["rates"][to_currency.upper()]
+        result = amount * rate
+        return f"{amount} {from_currency.upper()} = {result:.2f} {to_currency.upper()}"
     except Exception as e:
-        return {"error": str(e)}
+        return f"Currency conversion failed: {str(e)}"
 
 
 #  Weather

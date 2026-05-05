@@ -422,8 +422,62 @@ selected_thread = None
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap');
+            
 [data-testid="stSidebar"] {
     background: #e8e0f5;
+}
+            
+/* ── Sidebar title ── */
+[data-testid="stSidebar"] h1 {
+    font-family: 'Playfair Display', serif !important;
+    color: #4a3070 !important;
+    font-size: 2rem !important;
+}
+
+/* ── Sidebar caption ── */
+[data-testid="stSidebar"] small {
+    font-size: 1.3rem !important;   
+    color: #4a3070 !important;
+    font-family: 'Playfair Display', serif !important;
+}
+
+/* ── Sidebar info box ── */
+[data-testid="stSidebar"] [data-testid="stNotification"] p,
+[data-testid="stSidebar"] .stAlert p {
+    font-size: 0.95rem !important;
+    font-family: 'Playfair Display', serif !important;
+    color: #4a3070 !important;
+}
+                     
+/* ── Sidebar subheader ── */
+[data-testid="stSidebar"] h3 {
+    font-family: 'Playfair Display', serif !important;
+    color: #4a3070 !important;
+    font-size: 1.5rem !important;
+}    
+              
+[data-testid="stSidebar"] button p {
+    font-family: 'Playfair Display', serif !important;
+    color: #4a3070 !important;
+    font-size: 1.1rem !important;        
+}           
+[data-testid="stChatMessage"] td {
+    font-size: 1.3rem !important;     
+    line-height: 1.75 !important;
+}
+                       
+/* ── Chat input box font size ── */
+[data-testid="stChatInput"] textarea {
+    font-size: 1.3rem !important;
+}
+            
+/* ── User & AI message text ── */
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span {
+    font-size: 1.2rem !important;
+    line-height: 1.8 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -526,12 +580,12 @@ if not st.session_state["message_history"]:
     ">
         <div style="font-size:3.5rem; margin-bottom:1rem; 
                     filter: drop-shadow(0 6px 12px rgba(160,80,20,0.2));">🍵</div>
-        <div style="font-size:1.5rem; font-weight:700; color: #4a3070; 
+        <div style="font-size:2rem; font-weight:700; color: #4a3070; 
                     margin-bottom:0.5rem; letter-spacing:-0.3px;
                     font-family:'Playfair Display', serif;">
             Good to see you, {current_user['name'].split()[0]}!
         </div>
-        <div style="font-size:0.9rem; color: #4a3070;; 
+        <div style="font-size:1.2rem; color: #4a3070;; 
                     margin-bottom:2rem; line-height:1.7; max-width:36ch;
                     font-family:'Playfair Display', serif;">
             Your workspace is ready. Ask anything or pick a suggestion below.
@@ -542,28 +596,28 @@ if not st.session_state["message_history"]:
                         border-radius:14px; padding:1rem; cursor:pointer;
                         box-shadow:0 2px 8px rgba(140,80,20,0.07);">
                 <div style="font-size:1.4rem; margin-bottom:0.4rem;">📄</div>
-                <div style="font-size:0.8rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;">
+                <div style="font-size:1rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;">
                     Upload a PDF and ask questions</div>
             </div>
             <div style="background:#e8e0f5; border:0;
                         border-radius:14px; padding:1rem; cursor:pointer;
                         box-shadow:0 2px 8px rgba(140,80,20,0.07);">
                 <div style="font-size:1.4rem; margin-bottom:0.4rem;">📈</div>
-                <div style="font-size:0.8rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;"">
+                <div style="font-size:1rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;"">
                     What's Tesla's stock price?</div>
             </div>
             <div style="background:#e8e0f5; border:0;
                         border-radius:14px; padding:1rem; cursor:pointer;
                         box-shadow:0 2px 8px rgba(140,80,20,0.07);">
                 <div style="font-size:1.4rem; margin-bottom:0.4rem;">🌤️</div>
-                <div style="font-size:0.8rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;"">
+                <div style="font-size:1rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;"">
                     Weather in Hyderabad today?</div>
             </div>
             <div style="background:#e8e0f5; border:0;
                         border-radius:14px; padding:1rem; cursor:pointer;
                         box-shadow:0 2px 8px rgba(140,80,20,0.07);">
                 <div style="font-size:1.4rem; margin-bottom:0.4rem;">📖</div>
-                <div style="font-size:0.8rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;"">
+                <div style="font-size:1rem; font-weight:600; color: #4a3070;;font-family:'Playfair Display', serif;"">
                     Wikipedia search</div>
             </div>
         </div>

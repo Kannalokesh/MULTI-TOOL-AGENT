@@ -9,7 +9,13 @@ load_dotenv()
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8501/oauth/callback")
+
+IS_LOCAL = os.getenv("RAILWAY_ENVIRONMENT") is None  # Railway sets this automatically
+GOOGLE_REDIRECT_URI = os.getenv(
+    "REDIRECT_URI",
+    "http://localhost:8501" if IS_LOCAL else "https://multi-tool-agent-production.up.railway.app"
+)
+
 
 GOOGLE_AUTH_URL     = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL    = "https://oauth2.googleapis.com/token"

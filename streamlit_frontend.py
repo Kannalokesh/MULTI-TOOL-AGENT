@@ -28,6 +28,9 @@ from langraph_backend import (
     load_thread_names,
 )
 
+if not os.path.exists("thread_names.json"):
+    with open("thread_names.json", "w") as f:
+        json.dump({}, f)
 
 # ─── Handle OAuth callback ────────────────────────────────────────
 query_params = st.query_params

@@ -42,3 +42,6 @@ faiss_store/
 # Uploaded / temp PDFs
 *.pdf
 temp_*/
+
+.dockerignore
+.oauth_state.json

@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env                  # loads your API keys from .env
+    volumes:
+      - ./faiss_store:/app/faiss_store       # persist FAISS indexes
+      - ./chatbot.db:/app/chatbot.db         # persist SQLite
+      - ./auth.db:/app/auth.db               #  persist auth/sessions
+      - ./thread_names.json:/app/thread_names.json  # persist thread names
+    restart: unless-stopped

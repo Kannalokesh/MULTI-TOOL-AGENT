@@ -28,6 +28,62 @@ from langraph_backend import (
     load_thread_names,
 )
 
+# ======================== Guardrails ========================
+
+BLOCKED_PATTERNS = [
+    "ignore all instructions",
+    "ignore previous instructions",
+    "forget your instructions",
+    "you are now",
+    "act as",
+    "jailbreak",
+    "dan mode",
+    "pretend you are",
+    "simulate",
+    "bypass",
+    "override instructions",
+]
+
+def check_input_guardrails(user_input: str):
+    """
+    Check user input against basic safety rules.
+    Returns (is_blocked: bool, reason: str | None)
+    """
+    # 1. Length check
+    if len(user_input.strip()) == 0:
+        return True, "⚠️ Please enter a message."
+    
+    if len(user_input) > 2000:
+        return True, "⚠️ Message too long. Please keep it under 2000 characters."
+
+    # 2. Prompt injection check
+    lower = user_input.lower()
+    for pattern in BLOCKED_PATTERNS:
+        if pattern in lower:
+            return True, "⚠️ That type of input isn't allowed. Please ask something else."
+
+    # 3. Repeated character spam check (e.g. "aaaaaaaaaa...")
+    if len(set(user_input.replace(" ", ""))) < 3 and len(user_input) > 20:
+        return True, "⚠️ Invalid input. Please ask a proper question."
+
+    return False, None
+
+def check_output_guardrails(response: str) -> str:
+    """
+    Basic output sanity check.
+    Returns cleaned response or a fallback message.
+    """
+    # Runaway response check
+    if len(response) > 8000:
+        response = response[:8000] + "\n\n... *(Response truncated for safety)*"
+    
+    # Empty response fallback
+    if not response or len(response.strip()) == 0:
+        return "⚠️ I couldn't generate a response. Please try again."
+    
+    return response
+
+# to prevent crash on first deploy
 if not os.path.exists("thread_names.json"):
     with open("thread_names.json", "w") as f:
         json.dump({}, f)
@@ -656,6 +712,12 @@ if user_input:
     if not allowed:
         st.warning("⚠️ Rate limit hit — wait a moment.")
         st.stop()
+    # ── Guardrail check ──
+    is_blocked, reason = check_input_guardrails(user_input)
+    if is_blocked:
+        st.warning(reason)
+        st.stop()
+
     st.session_state["message_history"].append(
         {"role": "user", "content": user_input, "timestamp": get_timestamp()})
     
@@ -702,6 +764,9 @@ if user_input:
                     yield message_chunk.content
 
         ai_message = st.write_stream(ai_only_stream())
+        
+        # ── Output guardrail ──
+        ai_message = check_output_guardrails(ai_message)
 
         if status_holder["box"] is not None:
             status_holder["box"].update(

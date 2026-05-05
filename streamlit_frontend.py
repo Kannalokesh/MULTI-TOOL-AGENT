@@ -6,6 +6,7 @@ import shutil
 import streamlit as st
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from datetime import datetime
+import pytz
 
 from auth import (
     upsert_user,          
@@ -387,7 +388,9 @@ if not current_user:
 
 # =========================== Utilities ===========================
 def get_timestamp():
-    return datetime.now().strftime("%I:%M %p · %b %d")  # e.g. "10:35 AM · May 04"
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist)
+    return now.strftime("%I:%M %p · %b %d")
 
 def generate_thread_id():
     return f"{google_id}_{uuid.uuid4()}"
@@ -764,7 +767,7 @@ if user_input:
                     yield message_chunk.content
 
         ai_message = st.write_stream(ai_only_stream())
-        
+
         # ── Output guardrail ──
         ai_message = check_output_guardrails(ai_message)
 
